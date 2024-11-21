@@ -1,5 +1,6 @@
 import os
 import pickle
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -7,19 +8,30 @@ from flask_cors import CORS
 app = Flask(__name__)
 
 # Enable CORS for all domains (you can restrict to specific origins later)
-CORS(app)
+CORS(app, origins=["https://cancer-calculator.vercel.app/"])
+
+# Configure logging
+logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
 
 # Load model and scaler files using relative paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCALER_PATH = os.path.join(BASE_DIR, 'models', 'scaler.pkl')
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'Breast cancer models.pkl')
 
-# Load the model and scaler
-with open(SCALER_PATH, 'rb') as f:
-    scaler = pickle.load(f)
+# Load the model and scaler with error handling
+try:
+    with open(SCALER_PATH, 'rb') as f:
+        scaler = pickle.load(f)
+except Exception as e:
+    logging.error(f"Error loading scaler: {e}")
+    scaler = None
 
-with open(MODEL_PATH, 'rb') as f:
-    model = pickle.load(f)
+try:
+    with open(MODEL_PATH, 'rb') as f:
+        model = pickle.load(f)
+except Exception as e:
+    logging.error(f"Error loading model: {e}")
+    model = None
 
 # Define mappings for categorical values
 quadrant_mapping = {
@@ -35,8 +47,12 @@ def predict():
         # Get data from the request
         data = request.json
 
-        # Debugging: Print incoming data
-        print(f"Received data: {data}")
+        # Validate required fields
+        required_keys = ['age', 'tumorSize', 'invasiveNodes', 'breast', 'quadrant', 'history', 'menopause']
+        for key in required_keys:
+            if key not in data:
+                logging.error(f"Missing key: {key}")
+                return jsonify({'error': f"Missing key: {key}"}), 400
 
         # Initialize the features list
         features = [
@@ -48,9 +64,6 @@ def predict():
 
         # Map quadrant to numerical representation and extend features
         quadrant = quadrant_mapping.get(data['quadrant'], [0, 0, 0, 0])  # Default to [0, 0, 0, 0] if invalid
-        print(f"Quadrant mapping for {data['quadrant']}: {quadrant}")  # Debugging output
-
-        # Flatten the quadrant list and add to features
         features.extend(quadrant)
 
         # Add history and menopause as binary values
@@ -58,10 +71,7 @@ def predict():
         features.append(0 if data['menopause'] == 'no' else 1)  # 'no' -> 0, 'yes' -> 1
 
         # Log the final features
-        print(f"Features passed to model: {features}")
-
-        # Ensure features list is flat and no lists are nested
-        assert all(isinstance(i, (int, float)) for i in features), "Features list contains non-numeric data"
+        logging.debug(f"Features passed to model: {features}")
 
         # Scale the input features
         scaled_features = scaler.transform([features])
@@ -71,7 +81,7 @@ def predict():
         probability = model.predict_proba(scaled_features).tolist()
 
         # Log prediction and probability
-        print(f"Prediction: {prediction}, Probability: {probability}")
+        logging.debug(f"Prediction: {prediction}, Probability: {probability}")
 
         # Return prediction and probabilities
         return jsonify({
@@ -80,9 +90,15 @@ def predict():
         })
     except Exception as e:
         # Handle errors and return them in the response
-        print(f"Error: {str(e)}")  # Log error message
+        logging.error(f"Error during prediction: {str(e)}")
         return jsonify({'error': f"An error occurred: {str(e)}"}), 400
+
+# Serve a favicon to prevent 404 errors
+@app.route('/favicon.ico')
+def favicon():
+    return jsonify({'message': 'No favicon available'}), 204
 
 # Run the app with Gunicorn on Render (or locally with Flask's built-in server)
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
