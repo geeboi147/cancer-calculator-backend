@@ -8,7 +8,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 
 # Enable CORS for all domains (you can restrict to specific origins later)
-CORS(app, origins=["https://cancer-calculator.vercel.app/"])
+CORS(app, origins=["https://cancer-calculator.vercel.app"])
 
 # Configure logging
 logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
